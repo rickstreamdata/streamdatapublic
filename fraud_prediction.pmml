@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<PMML xmlns="http://www.dmg.org/PMML-4_3" xmlns:data="http://jpmml.org/jpmml-model/InlineTable" version="4.3">
+	<Header>
+		<Application name="JPMML-R" version="1.3.15"/>
+		<Timestamp>2020-03-02T18:42:29Z</Timestamp>
+	</Header>
+	<DataDictionary>
+		<DataField name="fraud_ind" optype="categorical" dataType="string">
+			<Value value="N"/>
+			<Value value="Y"/>
+		</DataField>
+		<DataField name="amount" optype="continuous" dataType="double"/>
+		<DataField name="balance" optype="continuous" dataType="double"/>
+	</DataDictionary>
+	<TreeModel functionName="classification" splitCharacteristic="binarySplit">
+		<MiningSchema>
+			<MiningField name="fraud_ind" usageType="target"/>
+			<MiningField name="amount"/>
+			<MiningField name="balance"/>
+		</MiningSchema>
+		<Output>
+			<OutputField name="probability(N)" optype="continuous" dataType="double" feature="probability" value="N"/>
+			<OutputField name="probability(Y)" optype="continuous" dataType="double" feature="probability" value="Y"/>
+			<OutputField name="nodeId" optype="categorical" dataType="string" feature="entityId"/>
+		</Output>
+		<Node id="1">
+			<True/>
+			<Node id="2">
+				<SimplePredicate field="amount" operator="lessOrEqual" value="3649.0"/>
+				<Node id="3">
+					<SimplePredicate field="amount" operator="lessOrEqual" value="1684.0"/>
+					<Node id="4" score="N">
+						<SimplePredicate field="amount" operator="lessOrEqual" value="302.0"/>
+						<ScoreDistribution value="N" recordCount="1.0"/>
+						<ScoreDistribution value="Y" recordCount="0.0"/>
+					</Node>
+					<Node id="5" score="Y">
+						<SimplePredicate field="amount" operator="greaterThan" value="302.0"/>
+						<ScoreDistribution value="N" recordCount="0.13043478260869565"/>
+						<ScoreDistribution value="Y" recordCount="0.8695652173913043"/>
+					</Node>
+				</Node>
+				<Node id="6">
+					<SimplePredicate field="amount" operator="greaterThan" value="1684.0"/>
+					<Node id="7" score="N">
+						<SimplePredicate field="amount" operator="lessOrEqual" value="2560.0"/>
+						<ScoreDistribution value="N" recordCount="1.0"/>
+						<ScoreDistribution value="Y" recordCount="0.0"/>
+					</Node>
+					<Node id="8">
+						<SimplePredicate field="amount" operator="greaterThan" value="2560.0"/>
+						<Node id="9">
+							<SimplePredicate field="amount" operator="lessOrEqual" value="3479.0"/>
+							<Node id="10" score="Y">
+								<SimplePredicate field="balance" operator="lessOrEqual" value="23814.7"/>
+								<ScoreDistribution value="N" recordCount="0.3333333333333333"/>
+								<ScoreDistribution value="Y" recordCount="0.6666666666666666"/>
+							</Node>
+							<Node id="11" score="N">
+								<SimplePredicate field="balance" operator="greaterThan" value="23814.7"/>
+								<ScoreDistribution value="N" recordCount="1.0"/>
+								<ScoreDistribution value="Y" recordCount="0.0"/>
+							</Node>
+						</Node>
+						<Node id="12" score="N">
+							<SimplePredicate field="amount" operator="greaterThan" value="3479.0"/>
+							<ScoreDistribution value="N" recordCount="1.0"/>
+							<ScoreDistribution value="Y" recordCount="0.0"/>
+						</Node>
+					</Node>
+				</Node>
+			</Node>
+			<Node id="13">
+				<SimplePredicate field="amount" operator="greaterThan" value="3649.0"/>
+				<Node id="14" score="Y">
+					<SimplePredicate field="amount" operator="lessOrEqual" value="3962.0"/>
+					<ScoreDistribution value="N" recordCount="0.34210526315789475"/>
+					<ScoreDistribution value="Y" recordCount="0.6578947368421053"/>
+				</Node>
+				<Node id="15" score="Y">
+					<SimplePredicate field="amount" operator="greaterThan" value="3962.0"/>
+					<ScoreDistribution value="N" recordCount="0.0"/>
+					<ScoreDistribution value="Y" recordCount="1.0"/>
+				</Node>
+			</Node>
+		</Node>
+	</TreeModel>
+</PMML>

@@ -1,0 +1,768 @@
+/*
+ * Copyright (c) 2016 Villu Ruusmann
+ *
+ * This file is part of JPMML-R
+ *
+ * JPMML-R is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * JPMML-R is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with JPMML-R.  If not, see <http://www.gnu.org/licenses/>.
+ */
+options {
+	JAVA_TEMPLATE_TYPE = "modern";
+	JDK_VERSION = "1.5";
+	STATIC = false;
+}
+
+PARSER_BEGIN(ExpressionTranslator)
+package org.jpmml.rexp;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.dmg.pmml.Apply;
+import org.dmg.pmml.Constant;
+import org.dmg.pmml.DataType;
+import org.dmg.pmml.Expression;
+import org.dmg.pmml.FieldName;
+import org.dmg.pmml.FieldRef;
+import org.dmg.pmml.Interval;
+import org.dmg.pmml.PMMLFunctions;
+import org.jpmml.converter.PMMLUtil;
+import org.jpmml.converter.visitors.ExpressionCompactor;
+
+public class ExpressionTranslator {
+
+	static
+	public Expression translateExpression(String string){
+		return translateExpression(string, true);
+	}
+
+	static
+	public Expression translateExpression(String string, boolean compact){
+		Expression expression;
+
+		try {
+			ExpressionTranslator translator = new ExpressionTranslator(string);
+			
+			expression = translator.translateExpressionInternal();
+		} catch(ParseException pe){
+			throw new IllegalArgumentException(string, pe);
+		}
+
+		if(compact){
+			ExpressionCompactor compactor = new ExpressionCompactor();
+
+			compactor.applyTo(expression);
+		}
+
+		return expression;
+	}
+
+	static
+	public Interval translateInterval(String string){
+		Interval interval;
+
+		try {
+			ExpressionTranslator translator = new ExpressionTranslator(string);
+
+			interval = translator.translateIntervalInternal();
+		} catch(ParseException pe){
+			throw new IllegalArgumentException(string, pe);
+		}
+
+		return interval;
+	}
+
+	static
+	private String translateLogicalOperator(Token operator){
+		
+		switch(operator.kind){
+			case AND:
+				return PMMLFunctions.AND;
+			case OR:
+				return PMMLFunctions.OR;
+			default:
+				throw new IllegalArgumentException(operator.image);
+		}
+	}
+
+	static
+	private String translateArithmeticOperator(Token operator){
+		
+		switch(operator.kind){
+			case PLUS:
+			case MINUS:
+			case MULTIPLY:
+			case DIVIDE:
+				return operator.image;
+			case MODULO:
+				return PMMLFunctions.MODULO;
+			default:
+				throw new IllegalArgumentException(operator.image);
+		}
+	}
+
+	static
+	private String translateRelationalOperator(Token operator){
+		
+		switch(operator.kind){
+			case EQUAL:
+				return PMMLFunctions.EQUAL;
+			case NOT_EQUAL:
+				return PMMLFunctions.NOTEQUAL;
+			case LESS_THAN:
+				return PMMLFunctions.LESSTHAN;
+			case LESS_OR_EQUAL:
+				return PMMLFunctions.LESSOREQUAL;
+			case GREATER_THAN:
+				return PMMLFunctions.GREATERTHAN;
+			case GREATER_OR_EQUAL:
+				return PMMLFunctions.GREATEROREQUAL;
+			default:
+				throw new IllegalArgumentException(operator.image);
+		}
+	}
+
+	static
+	private String translateFunction(String function){
+
+		switch(function){
+			case "abs":
+				return PMMLFunctions.ABS;
+			case "ceiling":
+				return PMMLFunctions.CEIL;
+			case "exp":
+				return PMMLFunctions.EXP;
+			case "floor":
+				return PMMLFunctions.FLOOR;
+			case "log":
+				return PMMLFunctions.LN;
+			case "log10":
+				return PMMLFunctions.LOG10;
+			case "round":
+				return PMMLFunctions.ROUND;
+			case "sqrt":
+				return PMMLFunctions.SQRT;
+			default:
+				break;
+		}
+
+		switch(function){
+			case "is.na":
+				return PMMLFunctions.ISMISSING;
+			default:
+				throw new IllegalArgumentException(function);
+		}
+	}
+
+	static
+	private String translateValue(Token value){
+		String image = value.image;
+
+		switch(value.kind){
+			case FALSE:
+			case TRUE:
+				return image.toLowerCase();
+			case INF:
+				return "Infinity";
+			case NAN:
+				return "NaN";
+			case STRING:
+				return image.substring(1, image.length() - 1);
+			default:
+				return image;
+		}
+	}
+
+	static
+	private String translateTag(Token tag){
+		String image = tag.image;
+		
+		switch(tag.kind){
+			case IDENTIFIER:
+				return image;
+			case STRING:
+				return image.substring(1, image.length() - 1);
+			default:
+				throw new IllegalArgumentException();
+		}
+	}
+
+	static
+	private Interval.Closure translateClosure(String leftBound, String rightBound){
+		String closure = (leftBound + rightBound);
+		
+		switch(closure){
+			case "()":
+				return Interval.Closure.OPEN_OPEN;
+			case "(]":
+				return Interval.Closure.OPEN_CLOSED;
+			case "[)":
+				return Interval.Closure.CLOSED_OPEN;
+			case "[]":
+				return Interval.Closure.CLOSED_CLOSED;
+			default:
+				throw new IllegalArgumentException(closure);
+		}
+	}
+
+	static
+	private Double filterMargin(Double value){
+
+		if(value.isNaN()){
+			throw new IllegalArgumentException();
+		} // End if
+
+		if(value.isInfinite()){
+			return null;
+		}
+
+		return value;
+	}
+}
+PARSER_END(ExpressionTranslator)
+
+SPECIAL_TOKEN:
+{
+	" "
+	|
+	"\t"
+}
+
+TOKEN:
+{
+	< PLUS: "+" >
+	|
+	< MINUS: "-" >
+	|
+	< MULTIPLY: "*" >
+	|
+	< DIVIDE: "/" >
+	|
+	< MODULO: "%" >
+	|
+	< POWER: "^" >
+	|
+	< POWER_MULTIPLY: "**" >
+}
+
+TOKEN:
+{
+	< LPAREN: "(" >
+	|
+	< RPAREN: ")" >
+	|
+	< LBRACKET: "[" >
+	|
+	< RBRACKET: "]" >
+}
+
+TOKEN:
+{
+	< AND: "&" >
+	|
+	< OR: "|" >
+	|
+	< NOT: "!" >
+	|
+	< EQUAL: "==" >
+	|
+	< NOT_EQUAL: "!=" >
+	|
+	< LESS_THAN: "<" >
+	|
+	< LESS_OR_EQUAL: "<=" >
+	|
+	< GREATER_THAN: ">" >
+	|
+	< GREATER_OR_EQUAL: ">=" >
+}
+
+TOKEN:
+{
+	< ASSIGN: "=" >
+	|
+	< COMMA: "," >
+	|
+	< DOUBLE_COLON: "::" >
+	|
+	< TRIPLE_COLON: ":::" >
+}
+
+/*
+ * Reserved words.
+ * See https://stat.ethz.ch/R-manual/R-devel/library/base/html/Reserved.html
+ */
+TOKEN:
+{
+	< BREAK: "break" >
+	|
+	< FOR: "for" >
+	|
+	< FUNCTION: "function" >
+	|
+	< ELSE: "else" >
+	|
+	< IF: "if" >
+	|
+	< IN: "in" >
+	|
+	< NEXT: "next" >
+	|
+	< REPEAT: "repeat" >
+	|
+	< WHILE: "while" >
+}
+
+/*
+ * Reserved literals.
+ * See https://stat.ethz.ch/R-manual/R-devel/library/base/html/Reserved.html
+ */
+TOKEN:
+{
+	< FALSE: "FALSE" >
+	|
+	< INF: "Inf" >
+	|
+	< NA: "NA" >
+	|
+	< NA_CHARACTER: "NA_character_" >
+	|
+	< NA_COMPLEX: "NA_complex_" >
+	|
+	< NA_INTEGER: "NA_integer_" >
+	|
+	< NA_REAL: "NA_real" >
+	|
+	< NAN: "NaN" >
+	|
+	< NULL: "NULL" >
+	|
+	< TRUE: "TRUE" >
+}
+
+TOKEN:
+{
+	< INT: (<DIGIT>)+ (["l", "L"])? >
+	|
+	< FLOAT:
+		(<DIGIT>)+ "." (<DIGIT>)* (<EXP>)?
+		|
+		"." (<DIGIT>)+ (<EXP>)?
+		|
+		(<DIGIT>)+ (<EXP>)?
+	>
+	|
+	< IDENTIFIER: <LETTER> (<LETTER> | <DIGIT> | "." | "_")* >
+	|
+	< STRING:
+		"\"" (~["\""])* "\""
+		|
+		"\'" (~["\'"])* "\'"
+		|
+		"`" (~["`"])* "`"
+	>
+	|
+	< #DIGIT: ["0" - "9"] >
+	|
+	< #LETTER: ["a" - "z", "A" - "Z"]>
+	|
+	< #EXP: ["e", "E"] (["+", "-"])? <INT> >
+	|
+	< #ESC: "\\" ["\"", "\'", "\\"] >
+}
+
+private Expression translateExpressionInternal():
+{
+	Expression expression;
+}
+{
+	expression = Expression() <EOF>
+
+	{
+		return expression;
+	}
+}
+
+/*
+ * See https://stat.ethz.ch/R-manual/R-devel/library/base/html/Syntax.html
+ */
+Expression Expression():
+{
+	Expression expression;
+}
+{
+	(
+		LOOKAHEAD(<IF>)
+		expression = IfExpression()
+		|
+		expression = OrExpression()
+	)
+
+	{
+		return expression;
+	}
+}
+
+Expression IfExpression():
+{
+	Expression condition;
+	Expression first;
+	Expression second = null;
+}
+{
+	<IF> <LPAREN> condition = Expression() <RPAREN> first = Expression() (LOOKAHEAD(<ELSE>) <ELSE> second = Expression())?
+
+	{
+		if(second != null){
+			return PMMLUtil.createApply(PMMLFunctions.IF, condition, first, second);
+		}
+
+		return PMMLUtil.createApply(PMMLFunctions.IF, condition, first);
+	}
+}
+
+Expression OrExpression():
+{
+	Expression left;
+	Token operator;
+	Expression right;
+}
+{
+	left = AndExpression() (operator = <OR> right = AndExpression() { left = PMMLUtil.createApply(translateLogicalOperator(operator), left, right); })*
+
+	{
+		return left;
+	}
+}
+
+Expression AndExpression():
+{
+	Expression left;
+	Token operator;
+	Expression right;
+}
+{
+	left = NegationExpression() (operator = <AND> right = NegationExpression() { left = PMMLUtil.createApply(translateLogicalOperator(operator), left, right); })*
+
+	{
+		return left;
+	}
+}
+
+Expression NegationExpression():
+{
+	Token operator = null;
+	Expression expression;
+}
+{
+	(operator = <NOT>)? expression = RelationalExpression()
+
+	{
+		if(operator != null){
+			return PMMLUtil.createApply(PMMLFunctions.NOT, expression);
+		}
+		
+		return expression;
+	}
+}
+
+Expression RelationalExpression():
+{
+	Expression left;
+	Token operator;
+	Expression right;
+}
+{
+	left = AdditiveExpression() ((operator = <EQUAL> | operator = <NOT_EQUAL> | operator = <LESS_THAN> | operator = <LESS_OR_EQUAL> | operator = <GREATER_THAN> | operator = <GREATER_OR_EQUAL>) right = AdditiveExpression() { left = PMMLUtil.createApply(translateRelationalOperator(operator), left, right); })?
+
+	{
+		return left;
+	}
+}
+
+Expression AdditiveExpression():
+{
+	Expression left;
+	Token operator;
+	Expression right;
+}
+{
+	left = MultiplicativeExpression() ((operator = <PLUS> | operator = <MINUS>) right = MultiplicativeExpression() { left = PMMLUtil.createApply(translateArithmeticOperator(operator), left, right); })*
+
+	{
+		return left;
+	}
+}
+
+Expression MultiplicativeExpression():
+{
+	Expression left;
+	Token operator;
+	Expression right;
+}
+{
+	left = UnaryExpression() ((operator = <MULTIPLY> | operator = <DIVIDE> | operator = <MODULO>) right = UnaryExpression() { left = PMMLUtil.createApply(translateArithmeticOperator(operator), left, right); })*
+
+	{
+		return left;
+	}
+}
+
+Expression UnaryExpression():
+{
+	Token sign = null;
+	Expression expression;
+}
+{
+	(sign = <PLUS> | sign = <MINUS>)? expression = ExponentiationExpression()
+
+	{
+		if(sign != null && sign.kind == MINUS){
+			expression = PMMLUtil.toNegative(expression);
+		}
+
+		return expression;
+	}
+}
+
+Expression ExponentiationExpression():
+{
+	Expression left;
+	Token operator = null;
+	Expression right = null;
+}
+{
+	left = PrimaryExpression() ((operator = <POWER> | operator = <POWER_MULTIPLY>) right = UnaryExpression() { left = PMMLUtil.createApply(PMMLFunctions.POW, left, right); })?
+
+	{
+		return left;
+	}
+}
+
+Expression PrimaryExpression():
+{
+	Expression expression;
+}
+{
+	(
+		LOOKAHEAD(<IDENTIFIER> (<DOUBLE_COLON> | <TRIPLE_COLON>))
+		expression = FunctionInvocationExpression()
+		|
+		LOOKAHEAD(<IDENTIFIER> <LPAREN>)
+		expression = FunctionInvocationExpression()
+		|
+		expression = FieldInvocationExpression()
+		|
+		expression = ParenthesizedExpression()
+		|
+		expression = Constant()
+	)
+
+	{
+		return expression;
+	}
+}
+
+Expression FunctionInvocationExpression():
+{
+	Token namespace = null;
+	Token function;
+	Token begin;
+	Token end;
+	List<FunctionExpression.Argument> arguments;
+}
+{
+	(
+		LOOKAHEAD(<IDENTIFIER> (<DOUBLE_COLON> | <TRIPLE_COLON>))
+		namespace = <IDENTIFIER> (<DOUBLE_COLON> | <TRIPLE_COLON>) function = <IDENTIFIER> begin = <LPAREN> arguments = ArgumentList() end = <RPAREN>
+		|
+		function = <IDENTIFIER> begin = <LPAREN> arguments = ArgumentList() end = <RPAREN>
+	)
+
+	{
+		if(arguments.size() > 0){
+			FunctionExpression.Argument firstArgument = arguments.get(0);
+			firstArgument.setBegin(begin);
+
+			FunctionExpression.Argument lastArgument = arguments.get(arguments.size() - 1);
+			lastArgument.setEnd(end);
+		}
+
+		try {
+			String pmmlFunction = translateFunction(function.image);
+
+			if(arguments.size() == 1){
+				FunctionExpression.Argument argument = arguments.get(0);
+
+				if(!argument.hasTag() && !(argument.getExpression() instanceof FunctionExpression)){
+					return PMMLUtil.createApply(pmmlFunction, argument.getExpression());
+				}
+			}
+		} catch(IllegalArgumentException iae){
+			// Ignored
+		}
+
+		FunctionExpression functionExpression;
+
+		if(namespace != null){
+			functionExpression = new FunctionExpression(namespace.image, function.image, arguments);
+		} else
+
+		{
+			functionExpression = new FunctionExpression(function.image, arguments);
+		}
+
+		return functionExpression;
+	}
+}
+
+private List<FunctionExpression.Argument> ArgumentList():
+{
+	Token comma;
+	FunctionExpression.Argument argument;
+	List<FunctionExpression.Argument> arguments = new ArrayList<FunctionExpression.Argument>();
+}
+{
+	(
+		argument = Argument() { arguments.add(argument); } (comma = <COMMA> { argument.setEnd(comma); } argument = Argument() { argument.setBegin(comma); arguments.add(argument); })*
+	)
+
+	{
+		return arguments;
+	}
+}
+
+private FunctionExpression.Argument Argument():
+{
+	Token tag = null;
+	Expression expression;
+}
+{
+	(
+		LOOKAHEAD(<IDENTIFIER> <ASSIGN>)
+		tag = <IDENTIFIER> <ASSIGN> expression = Expression()
+		|
+		LOOKAHEAD(<STRING> <ASSIGN>)
+		tag = <STRING> <ASSIGN> expression = Expression()
+		|
+		expression = Expression()
+	)
+
+	{
+		FunctionExpression.Argument argument = (tag != null ? new FunctionExpression.Argument(translateTag(tag), expression) : new FunctionExpression.Argument(expression));
+
+		return argument;
+	}
+}
+
+FieldRef FieldInvocationExpression():
+{
+	Token name;
+}
+{
+	name = <IDENTIFIER>
+
+	{
+		FieldRef fieldRef = new FieldRef()
+			.setField(FieldName.create(name.image));
+
+		return fieldRef;
+	}
+}
+
+Expression ParenthesizedExpression():
+{
+	Expression expression;
+}
+{
+	<LPAREN> expression = Expression() <RPAREN>
+
+	{
+		return expression;
+	}
+}
+
+Constant Constant():
+{
+	Token value;
+	DataType dataType;
+}
+{
+	(
+		value = <INT> { dataType = DataType.INTEGER; }
+		|
+		( value = <FLOAT> | value = <INF> | value = <NAN> ) { dataType = DataType.DOUBLE; }
+		|
+		(value = <FALSE> | value = <TRUE>) { dataType = DataType.BOOLEAN; }
+		|
+		value = <STRING> { dataType = DataType.STRING; }
+	)
+
+	{
+		Constant constant = new Constant()
+			.setValue(translateValue(value))
+			.setDataType(dataType);
+
+		return constant;
+	}
+}
+
+private Interval translateIntervalInternal():
+{
+	Interval interval;
+}
+{
+	interval = Interval() <EOF>
+
+	{
+		return interval;
+	}
+}
+
+Interval Interval():
+{
+	Token leftBound;
+	Double leftMargin;
+	Token rightBound;
+	Double rightMargin;
+}
+{
+	(leftBound = <LPAREN> | leftBound = <LBRACKET>) leftMargin = SignedNumber() <COMMA> rightMargin = SignedNumber() (rightBound = <RPAREN> | rightBound = <RBRACKET>)
+
+	{
+		Interval interval = new Interval(translateClosure(leftBound.image, rightBound.image))
+			.setLeftMargin(filterMargin(leftMargin))
+			.setRightMargin(filterMargin(rightMargin));
+
+		return interval;
+	}
+}
+
+private Double SignedNumber():
+{
+	Token sign = null;
+	Token value;
+}
+{
+	(sign = <PLUS> | sign = <MINUS>)? (value = <INT> | value = <FLOAT> | value = <INF> | value = <NAN>)
+
+	{
+		String javaValue = translateValue(value);
+
+		if(sign != null && sign.kind == MINUS){
+			javaValue = ("-" + javaValue);
+		}
+
+		return Double.valueOf(javaValue);
+	}
+}
